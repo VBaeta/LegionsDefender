@@ -2,27 +2,34 @@ using UnityEngine;
 using Photon.Pun;
 using System.Collections.Generic;
 
-public class CharacterCombat : MonoBehaviourPun
+public class CombatComponent : MonoBehaviourPun
 {
+    public static CombatComponent LocalInstance { get; private set; }
+
     public string characterClass = "Warrior";
 
     [Header("Combat Stats")]
     public float maxHealth = 200f;
     public float currentHealth = 200f;
+    public float healthRegen = 1.5f; // HP per second
+
+    [Header("Mana Stats")]
+    public float maxMana = 100f;
+    public float currentMana = 100f;
+    public float manaRegen = 2f; // MP per second
+
+    [Header("Attack Stats")]
     public float baseDamage = 20f;
     public float attackRange = 2f;
     public float attackCooldown = 1.5f;
-
-    [Header("Resource Reference")]
-    public int gold = 1000;
-    public int lumber = 100;
+    public bool isMelee = true;
 
     [Header("Database & Prefabs")]
     [SerializeField] private CharacterDatabase characterDatabase;
-    [SerializeField] private UnitData[] buildableTroops; // Set via Inspector or loaded dynamically
+    [SerializeField] private UnitData[] buildableTroops;
 
     [Header("Visual Blueprint")]
-    [SerializeField] private GameObject blueprintPrefab; // Standard capsule/cube placeholder
+    [SerializeField] private GameObject blueprintPrefab;
 
     private float _nextAttackTime = 0f;
     private bool _isPlacingTroop = false;
@@ -35,17 +42,72 @@ public class CharacterCombat : MonoBehaviourPun
     private float _eCooldownTimer = 0f;
     private float _rCooldownTimer = 0f;
 
-    // Passives/Abilities configuration
-    private float _passiveTickTimer = 0f;
+    // Regen timer
+    private float _regenTimer = 0f;
+
+    // ResourceManager reference
+    private ResourceManager _resources;
+
+    public float QCooldownTimer => _qCooldownTimer;
+    public float ECooldownTimer => _eCooldownTimer;
+    public float RCooldownTimer => _rCooldownTimer;
+
+    private List<AbilityData> _characterAbilities = new List<AbilityData>();
+    public List<AbilityData> CharacterAbilities => _characterAbilities;
+
+    public AbilityData GetAbilityData(AbilityInputKey key)
+    {
+        if (_characterAbilities == null) return null;
+        return _characterAbilities.Find(a => a != null && a.inputKey == key);
+    }
+
+    public float GetRemainingCooldown(AbilityInputKey key)
+    {
+        switch (key)
+        {
+            case AbilityInputKey.Q: return _qCooldownTimer;
+            case AbilityInputKey.E: return _eCooldownTimer;
+            case AbilityInputKey.R: return _rCooldownTimer;
+            default: return 0f;
+        }
+    }
+
+    public float GetMaxCooldown(AbilityInputKey key)
+    {
+        AbilityData ability = GetAbilityData(key);
+        return ability != null ? ability.cooldown : 1f;
+    }
 
     private void Awake()
     {
         _cam = Camera.main;
         currentHealth = maxHealth;
+        currentMana = maxMana;
+        _resources = GetComponent<ResourceManager>();
+
+        if (photonView.IsMine)
+        {
+            LocalInstance = this;
+        }
     }
 
     private void Start()
     {
+        // Dynamically load database if null
+        if (characterDatabase == null)
+        {
+            characterDatabase = Resources.Load<CharacterDatabase>("CharacterDatabase");
+        }
+
+        if (characterDatabase != null && !string.IsNullOrEmpty(characterClass))
+        {
+            CharacterData data = characterDatabase.GetByName(characterClass);
+            if (data != null && data.abilities != null)
+            {
+                _characterAbilities = data.abilities;
+            }
+        }
+
         if (!photonView.IsMine) return;
 
         // Retrieve character name from custom property
@@ -53,26 +115,39 @@ public class CharacterCombat : MonoBehaviourPun
         {
             characterClass = (string)charNameObj;
             InitializeClassStats();
+
+            // Re-read abilities if class changed
+            if (characterDatabase != null)
+            {
+                CharacterData data = characterDatabase.GetByName(characterClass);
+                if (data != null && data.abilities != null)
+                {
+                    _characterAbilities = data.abilities;
+                }
+            }
         }
 
-        // Dynamically load database if null
-        if (characterDatabase == null)
-        {
-            characterDatabase = Resources.Load<CharacterDatabase>("CharacterDatabase");
-        }
-
-        // Load buildable troops dynamically from Resources/Characters
+        // Load buildable troops dynamically based on Selected Character's Kingdom
         if (buildableTroops == null || buildableTroops.Length == 0)
         {
-            var loaded = Resources.LoadAll<UnitData>("Characters");
-            buildableTroops = loaded;
-        }
+            if (characterDatabase != null)
+            {
+                CharacterData data = characterDatabase.GetByName(characterClass);
+                if (data != null)
+                {
+                    string folderPath = $"Characters/{data.kingdom}/Troops";
+                    var loaded = Resources.LoadAll<UnitData>(folderPath);
+                    buildableTroops = loaded;
+                    Debug.Log($"Loaded {buildableTroops?.Length ?? 0} buildable troops for Kingdom: {data.kingdom} from path: Resources/{folderPath}");
+                }
+            }
 
-        // Set starting resources from GameManager if present
-        if (GameManager.Instance != null)
-        {
-            gold = GameManager.Instance.startingGold;
-            lumber = GameManager.Instance.startingLumber;
+            // Fallback if kingdom loading failed or returned nothing
+            if (buildableTroops == null || buildableTroops.Length == 0)
+            {
+                var loaded = Resources.LoadAll<UnitData>("Characters");
+                buildableTroops = loaded;
+            }
         }
     }
 
@@ -82,30 +157,47 @@ public class CharacterCombat : MonoBehaviourPun
         {
             case "Warrior":
                 maxHealth = 250f;
+                healthRegen = 3.0f;
+                maxMana = 100f;
+                manaRegen = 2.0f;
                 baseDamage = 25f;
                 attackRange = 2f;
                 attackCooldown = 1.2f;
+                isMelee = true;
                 break;
             case "Mage":
                 maxHealth = 150f;
+                healthRegen = 1.0f;
+                maxMana = 200f;
+                manaRegen = 8.0f;
                 baseDamage = 35f;
                 attackRange = 12f;
                 attackCooldown = 1.8f;
+                isMelee = false;
                 break;
             case "Archer":
                 maxHealth = 180f;
+                healthRegen = 1.5f;
+                maxMana = 120f;
+                manaRegen = 4.0f;
                 baseDamage = 20f;
                 attackRange = 15f;
                 attackCooldown = 1.0f;
+                isMelee = false;
                 break;
             case "Tank":
                 maxHealth = 350f;
+                healthRegen = 6.0f;
+                maxMana = 80f;
+                manaRegen = 1.5f;
                 baseDamage = 15f;
                 attackRange = 2f;
                 attackCooldown = 1.5f;
+                isMelee = true;
                 break;
         }
         currentHealth = maxHealth;
+        currentMana = maxMana;
     }
 
     private void Update()
@@ -117,8 +209,13 @@ public class CharacterCombat : MonoBehaviourPun
         if (_eCooldownTimer > 0) _eCooldownTimer -= Time.deltaTime;
         if (_rCooldownTimer > 0) _rCooldownTimer -= Time.deltaTime;
 
-        // Process class passive skill
-        UpdatePassive();
+        // Apply health and mana regeneration
+        _regenTimer += Time.deltaTime;
+        if (_regenTimer >= 1f)
+        {
+            _regenTimer = 0f;
+            RegenerateStats();
+        }
 
         bool isBuildingPhase = GameManager.Instance != null && GameManager.Instance.CurrentPhase == GamePhase.Building;
 
@@ -132,39 +229,10 @@ public class CharacterCombat : MonoBehaviourPun
         }
     }
 
-    #region Passives & Abilities
-
-    private void UpdatePassive()
+    private void RegenerateStats()
     {
-        _passiveTickTimer += Time.deltaTime;
-        if (_passiveTickTimer >= 1f)
-        {
-            _passiveTickTimer = 0f;
-            ApplyPassiveEffect();
-        }
-    }
-
-    private void ApplyPassiveEffect()
-    {
-        switch (characterClass)
-        {
-            case "Warrior":
-                // Passive: Health regen (3 HP per second)
-                Heal(3f);
-                break;
-            case "Mage":
-                // Passive: Ability cooldown reduction boost or simple health helper
-                Heal(1f);
-                break;
-            case "Archer":
-                // Passive: Movespeed boost is handled in ThirdPersonMovement, but let's give minor regen
-                Heal(1.5f);
-                break;
-            case "Tank":
-                // Passive: High health regen (6 HP per second)
-                Heal(6f);
-                break;
-        }
+        currentHealth = Mathf.Min(currentHealth + healthRegen, maxHealth);
+        currentMana = Mathf.Min(currentMana + manaRegen, maxMana);
     }
 
     public void Heal(float amount)
@@ -184,15 +252,14 @@ public class CharacterCombat : MonoBehaviourPun
     private void Die()
     {
         Debug.Log($"{characterClass} died!");
-        // Placeholder respawn
+        // Reset stats
         currentHealth = maxHealth;
+        currentMana = maxMana;
         if (GameManager.Instance != null)
         {
             transform.position = GameManager.Instance.GetSpawnPosition(PhotonNetwork.LocalPlayer);
         }
     }
-
-    #endregion
 
     #region Building Mode Input & Radial Menu
 
@@ -296,7 +363,9 @@ public class CharacterCombat : MonoBehaviourPun
 
     private void StartTroopPlacement(UnitData troop)
     {
-        if (gold < troop.goldCost || lumber < troop.lumberCost)
+        if (_resources == null) return;
+
+        if (_resources.Gold < troop.goldCost || _resources.Lumber < troop.lumberCost)
         {
             Debug.Log("Not enough resources!");
             return;
@@ -307,30 +376,57 @@ public class CharacterCombat : MonoBehaviourPun
 
         if (_spawnedBlueprint != null) Destroy(_spawnedBlueprint);
         
-        // Spawn blueprint visual
-        if (blueprintPrefab != null)
+        // Spawn the troop's visual prefab as the preview blueprint!
+        if (troop.prefab != null)
         {
-            _spawnedBlueprint = Instantiate(blueprintPrefab);
+            _spawnedBlueprint = Instantiate(troop.prefab);
+            
+            // Disable colliders on the preview blueprint so it doesn't block raycasts or physics
+            foreach (var col in _spawnedBlueprint.GetComponentsInChildren<Collider>())
+            {
+                col.enabled = false;
+            }
         }
         else
         {
-            // Fallback placeholder
+            // Fallback primitive placeholder
             _spawnedBlueprint = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             Destroy(_spawnedBlueprint.GetComponent<Collider>());
             var renderer = _spawnedBlueprint.GetComponent<MeshRenderer>();
             if (renderer != null)
             {
-                renderer.sharedMaterial.color = new Color(0, 1, 0, 0.4f); // semi-transparent green
+                // Instantiate local material copy to avoid editing shared asset material
+                renderer.material.color = new Color(0, 1, 0, 0.4f);
             }
         }
     }
 
     private void UpdateBlueprintPosition()
     {
-        Ray ray = _cam.ScreenPointToRay(Input.mousePosition);
+        if (_spawnedBlueprint == null) return;
+
+        Vector3 screenCenter = new Vector3(Screen.width / 2f, Screen.height / 2f, 0f);
+        Vector3 raySource = (Cursor.lockState == CursorLockMode.None) ? Input.mousePosition : screenCenter;
+        Ray ray = _cam.ScreenPointToRay(raySource);
+
         if (Physics.Raycast(ray, out RaycastHit hit, 100f))
         {
+            // Ignore hits against the player's own character colliders to prevent self-collision snapping
+            if (hit.collider.transform.root == transform.root)
+            {
+                return;
+            }
+
+            _spawnedBlueprint.SetActive(true);
             _spawnedBlueprint.transform.position = hit.point;
+
+            // Align rotation to player facing direction
+            Vector3 playerForward = transform.forward;
+            playerForward.y = 0; // keep it flat on the ground
+            if (playerForward.sqrMagnitude > 0.001f)
+            {
+                _spawnedBlueprint.transform.rotation = Quaternion.LookRotation(playerForward.normalized);
+            }
 
             // Check if within battlefield bounds
             bool isValid = true;
@@ -339,10 +435,16 @@ public class CharacterCombat : MonoBehaviourPun
                 isValid = GameManager.Instance.IsInsidePlayerBattlefield(PhotonNetwork.LocalPlayer, hit.point);
             }
 
-            var renderer = _spawnedBlueprint.GetComponentInChildren<MeshRenderer>();
-            if (renderer != null)
+            // Color-code materials on the preview blueprint (green for valid, red for invalid)
+            foreach (var renderer in _spawnedBlueprint.GetComponentsInChildren<Renderer>())
             {
-                renderer.sharedMaterial.color = isValid ? new Color(0, 1, 0, 0.4f) : new Color(1, 0, 0, 0.4f);
+                if (renderer != null)
+                {
+                    foreach (var mat in renderer.materials)
+                    {
+                        mat.color = isValid ? new Color(0.5f, 1f, 0.5f, 0.6f) : new Color(1f, 0.5f, 0.5f, 0.6f);
+                    }
+                }
             }
 
             // Click LMB to place
@@ -351,17 +453,23 @@ public class CharacterCombat : MonoBehaviourPun
                 PlaceTroop(hit.point);
             }
         }
+        else
+        {
+            // Hide blueprint if pointing off-screen / at the sky
+            _spawnedBlueprint.SetActive(false);
+        }
     }
 
     private void PlaceTroop(Vector3 position)
     {
-        if (gold >= _selectedTroopData.goldCost && lumber >= _selectedTroopData.lumberCost)
+        if (_resources == null || _selectedTroopData == null) return;
+
+        if (_resources.Gold >= _selectedTroopData.goldCost && _resources.Lumber >= _selectedTroopData.lumberCost)
         {
-            gold -= _selectedTroopData.goldCost;
-            lumber -= _selectedTroopData.lumberCost;
+            _resources.SpendGold(_selectedTroopData.goldCost);
+            _resources.SpendLumber(_selectedTroopData.lumberCost);
 
             // Instantiation via Photon Network so all clients see it
-            // Troop prefab name must reside under "Assets/Resources/" or dynamically spawned via GameManager RPC
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SpawnTroopNetwork(_selectedTroopData.unitName, position);
@@ -384,17 +492,51 @@ public class CharacterCombat : MonoBehaviourPun
 
     private void UpgradeLumberjacks(bool hireNew)
     {
-        if (GameManager.Instance != null)
+        if (_resources == null) return;
+
+        int cost = hireNew 
+            ? (GameManager.Instance != null ? GameManager.Instance.lumberjackGoldCost : 150)
+            : (GameManager.Instance != null ? GameManager.Instance.efficiencyGoldCost : 200);
+
+        if (_resources.SpendGold(cost))
         {
-            GameManager.Instance.RequestLumberjackUpgrade(PhotonNetwork.LocalPlayer, hireNew);
+            if (hireNew)
+            {
+                _resources.AddLumberjack();
+            }
+            else
+            {
+                _resources.UpgradeEfficiency(1);
+            }
+        }
+        else
+        {
+            Debug.Log("Not enough gold to hire or upgrade lumberjacks!");
         }
     }
 
     private void UpgradeCastle(int statIndex)
     {
-        if (GameManager.Instance != null)
+        if (_resources == null) return;
+
+        int cost = 0;
+        switch (statIndex)
         {
-            GameManager.Instance.RequestCastleUpgrade(PhotonNetwork.LocalPlayer, statIndex);
+            case 0: cost = 50; break;
+            case 1: cost = 75; break;
+            case 2: cost = 60; break;
+        }
+
+        if (_resources.SpendLumber(cost))
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.RequestCastleUpgrade(PhotonNetwork.LocalPlayer, statIndex);
+            }
+        }
+        else
+        {
+            Debug.Log("Not enough lumber to upgrade Castle!");
         }
     }
 
@@ -438,7 +580,6 @@ public class CharacterCombat : MonoBehaviourPun
         Collider[] hits = Physics.OverlapSphere(transform.position + transform.forward * (attackRange / 2f), attackRange / 2f);
         foreach (var hit in hits)
         {
-            // Make sure not targeting self/ally
             var controller = hit.GetComponent<UnitController>();
             if (controller != null && controller.isEnemy)
             {
@@ -450,21 +591,47 @@ public class CharacterCombat : MonoBehaviourPun
 
     private void TriggerAbilityQ()
     {
-        _qCooldownTimer = 5f; // 5s CD placeholder
-        Debug.Log($"{characterClass} used Ability Q!");
-        // Placeholders for customization later
+        AbilityData ability = GetAbilityData(AbilityInputKey.Q);
+        if (ability == null) return;
+
+        if (currentMana < ability.manaCost)
+        {
+            Debug.Log($"Not enough mana for {ability.abilityName}!");
+            return;
+        }
+        currentMana -= ability.manaCost;
+        _qCooldownTimer = ability.cooldown;
+        Debug.Log($"{characterClass} used {ability.abilityName}!");
     }
 
     private void TriggerAbilityE()
     {
-        _eCooldownTimer = 10f; // 10s CD placeholder
-        Debug.Log($"{characterClass} used Ability E!");
+        AbilityData ability = GetAbilityData(AbilityInputKey.E);
+        if (ability == null) return;
+
+        if (currentMana < ability.manaCost)
+        {
+            Debug.Log($"Not enough mana for {ability.abilityName}!");
+            return;
+        }
+        currentMana -= ability.manaCost;
+        _eCooldownTimer = ability.cooldown;
+        Debug.Log($"{characterClass} used {ability.abilityName}!");
     }
 
     private void TriggerAbilityR()
     {
-        _rCooldownTimer = 20f; // 20s CD placeholder
-        Debug.Log($"{characterClass} used Ability R!");
+        AbilityData ability = GetAbilityData(AbilityInputKey.R);
+        if (ability == null) return;
+
+        if (currentMana < ability.manaCost)
+        {
+            Debug.Log($"Not enough mana for {ability.abilityName}!");
+            return;
+        }
+        currentMana -= ability.manaCost;
+        _rCooldownTimer = ability.cooldown;
+        Debug.Log($"{characterClass} used {ability.abilityName}!");
     }
 
     #endregion

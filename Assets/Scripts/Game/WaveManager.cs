@@ -32,6 +32,10 @@ public class WaveManager : MonoBehaviourPun
     private int _currentWaveIndex = -1;
     private int _activeEnemiesCount = 0;
 
+    public int CurrentWaveIndex => _currentWaveIndex;
+    public int ActiveEnemiesCount => _activeEnemiesCount;
+    public int TotalWavesCount => waves != null ? waves.Count : 0;
+
     private void Awake()
     {
         if (Instance == null)
@@ -80,6 +84,8 @@ public class WaveManager : MonoBehaviourPun
         if (!PhotonNetwork.IsMasterClient) return;
 
         _currentWaveIndex++;
+        photonView.RPC("RPC_UpdateWaveInfo", RpcTarget.All, _currentWaveIndex, _activeEnemiesCount);
+        
         if (_currentWaveIndex < waves.Count)
         {
             StartCoroutine(SpawnWaveRoutine(waves[_currentWaveIndex]));
@@ -119,10 +125,9 @@ public class WaveManager : MonoBehaviourPun
                     Vector2 randOffset = Random.insideUnitCircle * spawnRadius;
                     Vector3 spawnPos = portal.position + new Vector3(randOffset.x, 0f, randOffset.y);
 
-                    // Prefab lookup path
-                    string prefabPath = "Prefabs/Enemies/" + entry.enemyData.unitName;
-                    
-                    GameObject enemyGo = PhotonNetwork.Instantiate(prefabPath, spawnPos, portal.rotation);
+                    // Instantiates the generic enemy prefab, passing the enemy name as custom initialization data
+                    object[] initData = new object[] { entry.enemyData.unitName };
+                    GameObject enemyGo = PhotonNetwork.Instantiate("Prefabs/Enemies/GenericEnemy", spawnPos, portal.rotation, 0, initData);
                     UnitController controller = enemyGo.GetComponent<UnitController>();
                     
                     if (controller != null)
@@ -167,13 +172,22 @@ public class WaveManager : MonoBehaviourPun
         if (!PhotonNetwork.IsMasterClient) return;
 
         _activeEnemiesCount--;
+        photonView.RPC("RPC_UpdateWaveInfo", RpcTarget.All, _currentWaveIndex, _activeEnemiesCount);
+
         if (_activeEnemiesCount <= 0)
         {
             // All enemies killed, switch back to building phase
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.RequestCastleUpgrade(PhotonNetwork.LocalPlayer, -1); // Triggers next building turn in GameMaster
+                GameManager.Instance.EndCombatPhase();
             }
         }
+    }
+
+    [PunRPC]
+    private void RPC_UpdateWaveInfo(int waveIndex, int activeEnemies)
+    {
+        _currentWaveIndex = waveIndex;
+        _activeEnemiesCount = activeEnemies;
     }
 }

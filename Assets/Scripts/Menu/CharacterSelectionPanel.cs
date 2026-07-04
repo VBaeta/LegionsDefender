@@ -23,6 +23,7 @@ public class CharacterSelectionPanel : MonoBehaviour
 
     private List<CharacterCard> _instantiatedCards = new List<CharacterCard>();
     private CharacterCard _selectedCard;
+    private KingdomType _selectedKingdom = KingdomType.Humans;
 
     private void Awake()
     {
@@ -37,7 +38,134 @@ public class CharacterSelectionPanel : MonoBehaviour
 
     private void OnEnable()
     {
+        // On enable, check if local player already has a selected character, and default the tab filter to that character's kingdom
+        string currentSelection = "";
+        if (lobbyManager != null)
+        {
+            currentSelection = lobbyManager.GetLocalPlayerSelectedCharacter();
+        }
+
+        if (!string.IsNullOrEmpty(currentSelection) && characterDatabase != null)
+        {
+            CharacterData data = characterDatabase.GetByName(currentSelection);
+            if (data != null)
+            {
+                _selectedKingdom = data.kingdom;
+            }
+        }
+
+        CreateKingdomTabs();
         PopulateGrid();
+    }
+
+    private void CreateKingdomTabs()
+    {
+        // 1. Find or create tabs container
+        Transform existingTabs = transform.Find("KingdomTabs");
+        GameObject tabsGo;
+        if (existingTabs != null)
+        {
+            tabsGo = existingTabs.gameObject;
+        }
+        else
+        {
+            tabsGo = new GameObject("KingdomTabs", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            tabsGo.transform.SetParent(transform, false);
+        }
+
+        RectTransform rt = tabsGo.GetComponent<RectTransform>();
+        // Position it right above the CharacterGrid
+        rt.anchorMin = new Vector2(0f, 0.5f);
+        rt.anchorMax = new Vector2(0f, 0.5f);
+        rt.pivot = new Vector2(0f, 1f); // top-left
+        rt.anchoredPosition = new Vector2(105f, 378f); // Start at the top boundary of where grid used to start
+        rt.sizeDelta = new Vector2(960f, 50f); // Width matches grid, height = 50
+
+        HorizontalLayoutGroup hlg = tabsGo.GetComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 10f;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+
+        // Shift the CharacterGrid down slightly and adjust height to prevent overlap
+        Transform gridTrans = transform.Find("CharacterGrid");
+        if (gridTrans != null)
+        {
+            RectTransform gridRt = gridTrans.GetComponent<RectTransform>();
+            if (gridRt != null)
+            {
+                gridRt.anchoredPosition = new Vector2(105f, -30f); // Shifted down from 0
+                gridRt.sizeDelta = new Vector2(960f, 676f); // Reduced height from 756
+            }
+        }
+
+        // Clear existing tabs children if any
+        foreach (Transform child in tabsGo.transform)
+        {
+            Destroy(child.gameObject);
+        }
+
+        // Dynamic tab buttons based on KingdomType enum values
+        foreach (KingdomType kingdom in System.Enum.GetValues(typeof(KingdomType)))
+        {
+            GameObject btnGo = new GameObject(kingdom.ToString() + "Tab", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+            btnGo.transform.SetParent(tabsGo.transform, false);
+
+            Image img = btnGo.GetComponent<Image>();
+            img.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+
+            Button btn = btnGo.GetComponent<Button>();
+
+            GameObject txtGo = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            txtGo.transform.SetParent(btnGo.transform, false);
+
+            TextMeshProUGUI txt = txtGo.GetComponent<TextMeshProUGUI>();
+            txt.text = kingdom.ToString().ToUpper(); // Make it UPPERCASE for a premium feel
+            txt.fontSize = 16;
+            txt.alignment = TextAlignmentOptions.Center;
+            txt.color = Color.white;
+            txt.fontStyle = FontStyles.Bold;
+
+            KingdomType k = kingdom;
+            btn.onClick.AddListener(() => OnKingdomTabClicked(k));
+        }
+
+        UpdateTabSelectionVisuals();
+    }
+
+    private void OnKingdomTabClicked(KingdomType kingdom)
+    {
+        _selectedKingdom = kingdom;
+        UpdateTabSelectionVisuals();
+        PopulateGrid();
+    }
+
+    private void UpdateTabSelectionVisuals()
+    {
+        Transform tabs = transform.Find("KingdomTabs");
+        if (tabs == null) return;
+
+        for (int i = 0; i < tabs.childCount; i++)
+        {
+            Transform tab = tabs.GetChild(i);
+            Image img = tab.GetComponent<Image>();
+            TextMeshProUGUI txt = tab.GetComponentInChildren<TextMeshProUGUI>();
+            
+            if (tab.name == _selectedKingdom.ToString() + "Tab")
+            {
+                // Active tab color: Vibrant blue
+                if (img != null) img.color = new Color(0.12f, 0.58f, 0.95f, 1f); 
+                if (txt != null) txt.color = Color.white;
+            }
+            else
+            {
+                // Inactive tab color: Dark charcoal grey
+                if (img != null) img.color = new Color(0.15f, 0.15f, 0.15f, 0.85f);
+                if (txt != null) txt.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+            }
+        }
     }
 
     public void PopulateGrid()
@@ -65,6 +193,9 @@ public class CharacterSelectionPanel : MonoBehaviour
         foreach (var data in characterDatabase.characters)
         {
             if (data == null) continue;
+
+            // Filter by Kingdom type
+            if (data.kingdom != _selectedKingdom) continue;
 
             GameObject cardGo = Instantiate(characterCardPrefab, gridParent);
             CharacterCard card = cardGo.GetComponent<CharacterCard>();

@@ -57,6 +57,10 @@ MonoBehaviour:
   - RPC_TakeDamage
   - RPC_UpgradeCastle
   - RPC_UpgradeLumberjack
+  - RPC_UpdateWaveInfo
+  - RPC_PlayAttackAnimation
+  - RPC_PlayDieAnimation
+  - RPC_DisableUnit
   DisableAutoOpenWizard: 1
   ShowSettings: 0
   DevRegionSetOnce: 1

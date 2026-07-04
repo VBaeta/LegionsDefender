@@ -16,12 +16,25 @@ public class ThirdPersonMovement : MonoBehaviour
     [SerializeField] private float jumpHeight = 2.5f;
     private float _rotationSpeed;
     private Vector3 _velocity;
-    private float _groundDistance = 0.4f;
+    private float _groundDistance = 0.2f;
     private float _gravity = -20f;
     private bool _isGrounded;
     void Update()
     {
-        _isGrounded = Physics.CheckSphere(groundCheck.position, _groundDistance, groundMask);
+        if (camera == null)
+        {
+            if (Camera.main != null)
+            {
+                camera = Camera.main.transform;
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        // Use parent pivot which sits flush on the ground for maximum reliability
+        _isGrounded = Physics.CheckSphere(transform.position + new Vector3(0f, 0.15f, 0f), 0.25f, groundMask);
         
         if (_isGrounded && _velocity.y < 0)
         {

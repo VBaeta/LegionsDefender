@@ -12,10 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d286f1fcfabd4441af69a84ae3e6241, type: 3}
   m_Name: Archer
   m_EditorClassIdentifier: 
-  characterName: Archer
+  characterName: Arqueira
   description: A swift ranged attacker. Shoots arrows from afar to deal high single-target
     damage.
   icon: {fileID: 0}
   characterMesh: {fileID: 3878089679534622813, guid: cfae68b1fd998c54ea72f691d0499522,
     type: 3}
   characterMaterial: {fileID: 2100000, guid: dff002c32e9fc764fbed09ab88c801c4, type: 2}
+  abilities:
+  - {fileID: 11400000, guid: 6b4566cfb41d99d4e96d0baca089bacc, type: 2}
+  - {fileID: 11400000, guid: e36f8940e856a074ca831939f9dd477a, type: 2}
+  - {fileID: 11400000, guid: 41847a2ef6b95be4b89a158835045a3c, type: 2}
+  - {fileID: 11400000, guid: 051dba04612197b4b8479ef3bc7a6b36, type: 2}

@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 [CreateAssetMenu(fileName = "NewCharacter", menuName = "LegionsDefender/Character Data")]
 public class CharacterData : ScriptableObject
@@ -9,4 +10,8 @@ public class CharacterData : ScriptableObject
     public Sprite icon;
     public Mesh characterMesh;
     public Material characterMaterial;
+    public KingdomType kingdom;
+    
+    [Header("Abilities")]
+    public List<AbilityData> abilities;
 }

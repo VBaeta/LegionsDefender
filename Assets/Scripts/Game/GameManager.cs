@@ -32,8 +32,7 @@ public class GameManager : MonoBehaviourPunCallbacks
     [Header("Player Prefab")]
     [SerializeField] private string playerPrefabName = "Prefabs/PlayerCharacter";
 
-    private Dictionary<int, int> _playerLumberjacks = new Dictionary<int, int>();
-    private Dictionary<int, float> _playerEfficiency = new Dictionary<int, float>();
+
 
     // Castle Upgrade States
     private float _castleMaxHealth = 1000f;
@@ -43,6 +42,10 @@ public class GameManager : MonoBehaviourPunCallbacks
 
     public GamePhase CurrentPhase => _currentPhase;
     public float PhaseTimer => _phaseTimer;
+    public float CastleMaxHealth => _castleMaxHealth;
+    public float CastleCurrentHealth => _castleCurrentHealth;
+    public float CastleDamage => _castleDamage;
+    public float CastleRegen => _castleRegen;
     public float CastleHealthPercentage => _castleCurrentHealth / _castleMaxHealth;
 
     private void Awake()
@@ -68,12 +71,6 @@ public class GameManager : MonoBehaviourPunCallbacks
         _phaseTimer = buildingPhaseDuration;
         _lumberjackTimer = lumberProductionInterval;
 
-        // Default lumberjacks
-        foreach (var player in PhotonNetwork.PlayerList)
-        {
-            _playerLumberjacks[player.ActorNumber] = 1;
-            _playerEfficiency[player.ActorNumber] = 1.0f;
-        }
     }
 
     private void Update()
@@ -135,17 +132,20 @@ public class GameManager : MonoBehaviourPunCallbacks
 
     private void UpdatePhaseTimer()
     {
+        if (_currentPhase != GamePhase.Building) return;
+
         _phaseTimer -= Time.deltaTime;
         if (_phaseTimer <= 0)
         {
-            if (_currentPhase == GamePhase.Building)
-            {
-                photonView.RPC("RPC_SetPhase", RpcTarget.All, (int)GamePhase.Combat);
-            }
-            else
-            {
-                photonView.RPC("RPC_SetPhase", RpcTarget.All, (int)GamePhase.Building);
-            }
+            photonView.RPC("RPC_SetPhase", RpcTarget.All, (int)GamePhase.Combat);
+        }
+    }
+
+    public void EndCombatPhase()
+    {
+        if (PhotonNetwork.IsMasterClient && _currentPhase == GamePhase.Combat)
+        {
+            photonView.RPC("RPC_SetPhase", RpcTarget.All, (int)GamePhase.Building);
         }
     }
 
@@ -157,6 +157,16 @@ public class GameManager : MonoBehaviourPunCallbacks
         {
             _phaseTimer = buildingPhaseDuration;
             Debug.Log("Game Phase Switched to: Building");
+
+            // Reset all friendly troops' stats and positions when a wave ends
+            UnitController[] units = Object.FindObjectsByType<UnitController>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var unit in units)
+            {
+                if (unit != null && !unit.isEnemy)
+                {
+                    unit.ResetToSpawnPoint();
+                }
+            }
         }
         else
         {
@@ -182,51 +192,21 @@ public class GameManager : MonoBehaviourPunCallbacks
     [PunRPC]
     private void RPC_ProduceLumber()
     {
-        // Produce lumber for local player
-        var localPlayer = PhotonNetwork.LocalPlayer;
-        int actor = localPlayer.ActorNumber;
-        
-        int count = _playerLumberjacks.ContainsKey(actor) ? _playerLumberjacks[actor] : 1;
-        float eff = _playerEfficiency.ContainsKey(actor) ? _playerEfficiency[actor] : 1.0f;
-
-        int amount = Mathf.RoundToInt(count * 5 * eff); // base 5 lumber per lumberjack
-        
-        var combat = FindObjectOfType<CharacterCombat>();
-        if (combat != null)
+        if (ResourceManager.LocalInstance != null)
         {
-            combat.lumber += amount;
+            int count = ResourceManager.LocalInstance.LumberjackCount;
+            float eff = ResourceManager.LocalInstance.LumberjackEfficiency;
+            int amount = Mathf.RoundToInt(count * 5 * eff);
+            ResourceManager.LocalInstance.AddLumber(amount);
             Debug.Log($"Lumberjack Production: Received +{amount} Lumber!");
         }
     }
 
     public void SpawnTroopNetwork(string troopName, Vector3 position)
     {
-        // Instantiates prefab via Photon
-        // Needs a corresponding prefab named under "Resources/Prefabs/Troops/"
-        string path = "Prefabs/Troops/" + troopName;
-        PhotonNetwork.Instantiate(path, position, Quaternion.identity);
-    }
-
-    public void RequestLumberjackUpgrade(Player player, bool hireNew)
-    {
-        photonView.RPC("RPC_UpgradeLumberjack", RpcTarget.All, player.ActorNumber, hireNew);
-    }
-
-    [PunRPC]
-    private void RPC_UpgradeLumberjack(int actorNumber, bool hireNew)
-    {
-        if (hireNew)
-        {
-            if (!_playerLumberjacks.ContainsKey(actorNumber)) _playerLumberjacks[actorNumber] = 0;
-            _playerLumberjacks[actorNumber]++;
-            Debug.Log($"Lumberjacks increased for Player {actorNumber}: total {_playerLumberjacks[actorNumber]}");
-        }
-        else
-        {
-            if (!_playerEfficiency.ContainsKey(actorNumber)) _playerEfficiency[actorNumber] = 1.0f;
-            _playerEfficiency[actorNumber] += 0.2f; // +20% efficiency
-            Debug.Log($"Lumberjack efficiency increased for Player {actorNumber}: total {_playerEfficiency[actorNumber] * 100}%");
-        }
+        // Instantiates the generic troop prefab, passing the troopName as custom initialization data
+        object[] initData = new object[] { troopName };
+        PhotonNetwork.Instantiate("Prefabs/Troops/GenericTroop", position, Quaternion.identity, 0, initData);
     }
 
     public void RequestCastleUpgrade(Player player, int statIndex)

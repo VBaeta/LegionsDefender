@@ -12,6 +12,12 @@ EditorBuildSettings:
     path: Assets/Scenes/RoomScene.unity
     guid: 6383fbee0319228468cc4e0a0e5aa807
   - enabled: 1
+    path: Assets/Scenes/CoopGameScene.unity
+    guid: 06ba36ad01dcd04448590209e482d85e
+  - enabled: 1
+    path: Assets/Scenes/TvTGameScene.unity
+    guid: 6872f83f1cb90194eb481a944ec4b65b
+  - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
   m_configObjects: {}

@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e3a72a6179aa72c4eb4663775c60766f, type: 3}
+  m_Name: 1_Peasant
+  m_EditorClassIdentifier: 
+  unitName: Peasant
+  description: Basic laborer pressed into service. Weak but very cheap.
+  icon: {fileID: 0}
+  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  goldCost: 50
+  lumberCost: 0
+  goldBounty: 10
+  maxHealth: 80
+  moveSpeed: 3
+  attackDamage: 6
+  attackRange: 1.5
+  attackRate: 1.2
+  isMelee: 1
+  damageType: 0
+  armorType: 0

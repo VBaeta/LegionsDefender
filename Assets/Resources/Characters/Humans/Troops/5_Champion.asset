@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e3a72a6179aa72c4eb4663775c60766f, type: 3}
+  m_Name: 5_Champion
+  m_EditorClassIdentifier: 
+  unitName: Champion
+  description: Elite armored knight. Exceptional melee stats.
+  icon: {fileID: 0}
+  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  goldCost: 450
+  lumberCost: 50
+  goldBounty: 90
+  maxHealth: 350
+  moveSpeed: 3.2
+  attackDamage: 45
+  attackRange: 2
+  attackRate: 1.4
+  isMelee: 1
+  damageType: 0
+  armorType: 2

@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.AI;
 using Photon.Pun;
 
-public class UnitController : MonoBehaviourPun
+public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 {
     [Header("Configuration Data")]
     [SerializeField] private UnitData unitData;
@@ -15,6 +15,11 @@ public class UnitController : MonoBehaviourPun
     private Transform _target;
     private float _currentHealth;
     private float _nextAttackTime = 0f;
+    private Animator _animator;
+
+    private Vector3 _originalSpawnPosition;
+    private Quaternion _originalSpawnRotation;
+    private bool _isDead = false;
 
     // Enemy movement paths
     private Vector3[] _waypoints;
@@ -23,11 +28,79 @@ public class UnitController : MonoBehaviourPun
     public float CurrentHealth => _currentHealth;
     public UnitData Data => unitData;
 
+    public void OnPhotonInstantiate(PhotonMessageInfo info)
+    {
+        object[] data = info.photonView.InstantiationData;
+        if (data != null && data.Length > 0)
+        {
+            string unitName = (string)data[0];
+            
+            // Check in Characters (Allies) or Enemies folder
+            UnitData loadedData = Resources.Load<UnitData>($"Characters/{unitName}");
+            if (loadedData == null)
+            {
+                loadedData = Resources.Load<UnitData>($"Enemies/{unitName}");
+            }
+
+            if (loadedData != null)
+            {
+                unitData = loadedData;
+                _currentHealth = unitData.maxHealth;
+                if (agent == null)
+                {
+                    agent = GetComponent<NavMeshAgent>();
+                }
+                if (agent != null)
+                {
+                    agent.speed = unitData.moveSpeed;
+                }
+
+                SpawnVisualModel();
+            }
+        }
+    }
+
+    private void SpawnVisualModel()
+    {
+        // Clear any existing visual model child to prevent overlap
+        foreach (Transform child in transform)
+        {
+            if (child.name == "VisualModel")
+            {
+                Destroy(child.gameObject);
+            }
+        }
+
+        if (unitData != null && unitData.prefab != null)
+        {
+            GameObject visual = Instantiate(unitData.prefab, transform);
+            visual.name = "VisualModel";
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localRotation = Quaternion.identity;
+
+            // Cache animator
+            _animator = visual.GetComponent<Animator>();
+            if (_animator == null)
+            {
+                _animator = visual.GetComponentInChildren<Animator>();
+            }
+        }
+    }
+
     private void Start()
     {
+        // Cache original spawn position and rotation for end-of-wave resets
+        _originalSpawnPosition = transform.position;
+        _originalSpawnRotation = transform.rotation;
+
+        // If spawned locally or preset in editor, spawn visual model if missing
+        if (unitData != null && transform.Find("VisualModel") == null)
+        {
+            SpawnVisualModel();
+        }
+
         if (unitData == null)
         {
-            Debug.LogError("No UnitData asset assigned to UnitController!");
             return;
         }
 
@@ -49,6 +122,15 @@ public class UnitController : MonoBehaviourPun
 
     private void Update()
     {
+        if (_isDead) return;
+
+        // Update locomotion animation for all clients
+        if (_animator != null && agent != null && agent.isOnNavMesh)
+        {
+            float normSpeed = agent.velocity.magnitude / agent.speed;
+            _animator.SetFloat("Speed", normSpeed);
+        }
+
         // Combat target and movement updates are processed on the owner/master client to prevent race conditions
         if (PhotonNetwork.IsConnectedAndReady && !PhotonNetwork.IsMasterClient) return;
 
@@ -129,7 +211,7 @@ public class UnitController : MonoBehaviourPun
         if (_target != null)
         {
             var targetUnit = _target.GetComponent<UnitController>();
-            var targetPlayer = _target.GetComponent<CharacterCombat>();
+            var targetPlayer = _target.GetComponent<CombatComponent>();
             if ((targetUnit != null && targetUnit.CurrentHealth <= 0) || 
                 (targetPlayer != null && targetPlayer.currentHealth <= 0))
             {
@@ -159,7 +241,7 @@ public class UnitController : MonoBehaviourPun
                     }
                 }
 
-                var player = hit.GetComponent<CharacterCombat>();
+                var player = hit.GetComponent<CombatComponent>();
                 if (player != null && player.currentHealth > 0)
                 {
                     float dist = Vector3.Distance(transform.position, hit.transform.position);
@@ -196,16 +278,39 @@ public class UnitController : MonoBehaviourPun
     {
         _nextAttackTime = Time.time + (1f / unitData.attackRate);
 
+        if (PhotonNetwork.IsConnectedAndReady)
+        {
+            photonView.RPC("RPC_PlayAttackAnimation", RpcTarget.All);
+        }
+        else
+        {
+            PlayAttackAnimation();
+        }
+
         var targetUnit = _target.GetComponent<UnitController>();
         if (targetUnit != null)
         {
             targetUnit.TakeDamage(unitData.attackDamage, unitData.damageType);
         }
 
-        var targetPlayer = _target.GetComponent<CharacterCombat>();
+        var targetPlayer = _target.GetComponent<CombatComponent>();
         if (targetPlayer != null)
         {
             targetPlayer.TakeDamage(unitData.attackDamage);
+        }
+    }
+
+    [PunRPC]
+    private void RPC_PlayAttackAnimation()
+    {
+        PlayAttackAnimation();
+    }
+
+    private void PlayAttackAnimation()
+    {
+        if (_animator != null)
+        {
+            _animator.SetTrigger("Attack");
         }
     }
 
@@ -268,15 +373,141 @@ public class UnitController : MonoBehaviourPun
         // If enemy, give bounty to all players or the local player that killed them
         if (isEnemy && GameManager.Instance != null)
         {
-            var combat = FindObjectOfType<CharacterCombat>();
-            if (combat != null)
+            if (ResourceManager.LocalInstance != null)
             {
-                combat.gold += unitData.goldBounty;
+                ResourceManager.LocalInstance.AddGold(unitData.goldBounty);
                 Debug.Log($"Enemy Defeated: +{unitData.goldBounty} Gold!");
             }
         }
 
-        Despawn();
+        if (PhotonNetwork.IsConnectedAndReady)
+        {
+            photonView.RPC("RPC_PlayDieAnimation", RpcTarget.All);
+        }
+        else
+        {
+            PlayDieAnimation();
+        }
+
+        if (!PhotonNetwork.IsConnectedAndReady || PhotonNetwork.IsMasterClient)
+        {
+            StartCoroutine(DelayDespawn(1.5f));
+        }
+    }
+
+    [PunRPC]
+    private void RPC_PlayDieAnimation()
+    {
+        PlayDieAnimation();
+    }
+
+    private void PlayDieAnimation()
+    {
+        if (_animator != null)
+        {
+            _animator.SetTrigger("Die");
+        }
+    }
+
+    private IEnumerator DelayDespawn(float delay)
+    {
+        // Disable agent & collider immediately upon death
+        if (agent != null && agent.isOnNavMesh) agent.isStopped = true;
+        
+        Collider col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
+
+        yield return new WaitForSeconds(delay);
+        DespawnOrDisable();
+    }
+
+    private void DespawnOrDisable()
+    {
+        if (isEnemy)
+        {
+            Despawn();
+        }
+        else
+        {
+            if (PhotonNetwork.IsConnectedAndReady)
+            {
+                photonView.RPC("RPC_DisableUnit", RpcTarget.All);
+            }
+            else
+            {
+                DisableUnit();
+            }
+        }
+    }
+
+    [PunRPC]
+    private void RPC_DisableUnit()
+    {
+        DisableUnit();
+    }
+
+    private void DisableUnit()
+    {
+        _isDead = true;
+        
+        // Hide visual model
+        Transform visual = transform.Find("VisualModel");
+        if (visual != null)
+        {
+            visual.gameObject.SetActive(false);
+        }
+
+        // Disable agent and collider
+        if (agent != null) agent.enabled = false;
+        Collider col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
+    }
+
+    public void ResetToSpawnPoint()
+    {
+        _isDead = false;
+
+        // Reset position and rotation
+        transform.position = _originalSpawnPosition;
+        transform.rotation = _originalSpawnRotation;
+
+        // Re-enable visual model
+        Transform visual = transform.Find("VisualModel");
+        if (visual != null)
+        {
+            visual.gameObject.SetActive(true);
+        }
+
+        // Re-enable collider
+        Collider col = GetComponent<Collider>();
+        if (col != null) col.enabled = true;
+
+        // Re-enable agent
+        if (agent != null)
+        {
+            agent.enabled = true;
+            if (agent.isOnNavMesh)
+            {
+                agent.Warp(_originalSpawnPosition);
+                agent.isStopped = true;
+            }
+        }
+
+        // Reset health
+        if (unitData != null)
+        {
+            _currentHealth = unitData.maxHealth;
+        }
+
+        // Reset target
+        _target = null;
+
+        // Reset animator state
+        if (_animator != null)
+        {
+            _animator.Play("Idle");
+            _animator.Rebind();
+        }
     }
 
     private void Despawn()
