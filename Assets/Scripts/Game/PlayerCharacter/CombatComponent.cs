@@ -36,6 +36,7 @@ public class CombatComponent : MonoBehaviourPun
     private UnitData _selectedTroopData;
     private GameObject _spawnedBlueprint;
     private Camera _cam;
+    private int _placementStartFrame = -1;
 
     // Cooldown trackers
     private float _qCooldownTimer = 0f;
@@ -373,29 +374,71 @@ public class CombatComponent : MonoBehaviourPun
 
         _selectedTroopData = troop;
         _isPlacingTroop = true;
+        _placementStartFrame = Time.frameCount;
 
         if (_spawnedBlueprint != null) Destroy(_spawnedBlueprint);
         
-        // Spawn the troop's visual prefab as the preview blueprint!
-        if (troop.prefab != null)
+        if (troop.visualPrefab != null)
         {
-            _spawnedBlueprint = Instantiate(troop.prefab);
-            
-            // Disable colliders on the preview blueprint so it doesn't block raycasts or physics
+            _spawnedBlueprint = Instantiate(troop.visualPrefab);
+            _spawnedBlueprint.name = "TroopBlueprint";
+            _spawnedBlueprint.transform.localScale = Vector3.one * troop.modelScale;
+
+            // Disable all colliders on preview so it doesn't block raycasts or physics
             foreach (var col in _spawnedBlueprint.GetComponentsInChildren<Collider>())
             {
                 col.enabled = false;
             }
+
+            // Clone materials so we can tint them without modifying the originals
+            foreach (var renderer in _spawnedBlueprint.GetComponentsInChildren<Renderer>())
+            {
+                if (renderer != null && renderer.sharedMaterials != null)
+                {
+                    Material[] clonedMats = new Material[renderer.sharedMaterials.Length];
+                    for (int i = 0; i < renderer.sharedMaterials.Length; i++)
+                    {
+                        if (renderer.sharedMaterials[i] != null)
+                        {
+                            clonedMats[i] = new Material(renderer.sharedMaterials[i]);
+                            clonedMats[i].color = new Color(0.5f, 1f, 0.5f, 0.6f); // semi-transparent green
+                        }
+                    }
+                    renderer.materials = clonedMats;
+                }
+            }
+        }
+        else if (troop.mesh != null)
+        {
+            _spawnedBlueprint = new GameObject("TroopBlueprint");
+            _spawnedBlueprint.transform.localScale = Vector3.one * troop.modelScale;
+
+            MeshFilter mf = _spawnedBlueprint.AddComponent<MeshFilter>();
+            mf.sharedMesh = troop.mesh;
+
+            MeshRenderer mr = _spawnedBlueprint.AddComponent<MeshRenderer>();
+            if (troop.materials != null && troop.materials.Length > 0)
+            {
+                Material[] clonedMats = new Material[troop.materials.Length];
+                for (int i = 0; i < troop.materials.Length; i++)
+                {
+                    if (troop.materials[i] != null)
+                    {
+                        clonedMats[i] = new Material(troop.materials[i]);
+                        clonedMats[i].color = new Color(0.5f, 1f, 0.5f, 0.6f);
+                    }
+                }
+                mr.materials = clonedMats;
+            }
         }
         else
         {
-            // Fallback primitive placeholder
+            // Fallback capsule placeholder
             _spawnedBlueprint = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             Destroy(_spawnedBlueprint.GetComponent<Collider>());
             var renderer = _spawnedBlueprint.GetComponent<MeshRenderer>();
             if (renderer != null)
             {
-                // Instantiate local material copy to avoid editing shared asset material
                 renderer.material.color = new Color(0, 1, 0, 0.4f);
             }
         }
@@ -405,64 +448,87 @@ public class CombatComponent : MonoBehaviourPun
     {
         if (_spawnedBlueprint == null) return;
 
-        Vector3 screenCenter = new Vector3(Screen.width / 2f, Screen.height / 2f, 0f);
-        Vector3 raySource = (Cursor.lockState == CursorLockMode.None) ? Input.mousePosition : screenCenter;
-        Ray ray = _cam.ScreenPointToRay(raySource);
-
-        if (Physics.Raycast(ray, out RaycastHit hit, 100f))
+        // Lazy re-cache camera if it wasn't available during Awake
+        if (_cam == null)
         {
-            // Ignore hits against the player's own character colliders to prevent self-collision snapping
-            if (hit.collider.transform.root == transform.root)
-            {
-                return;
-            }
+            _cam = Camera.main;
+            if (_cam == null) return;
+        }
 
-            _spawnedBlueprint.SetActive(true);
-            _spawnedBlueprint.transform.position = hit.point;
+        // Right-click cancels placement
+        if (Input.GetMouseButtonDown(1))
+        {
+            CancelPlacement();
+            return;
+        }
 
-            // Align rotation to player facing direction
-            Vector3 playerForward = transform.forward;
-            playerForward.y = 0; // keep it flat on the ground
-            if (playerForward.sqrMagnitude > 0.001f)
-            {
-                _spawnedBlueprint.transform.rotation = Quaternion.LookRotation(playerForward.normalized);
-            }
+        // Define default fallback position in front of character
+        Vector3 forward = transform.forward;
+        forward.y = 0;
+        forward.Normalize();
+        Vector3 targetPos = transform.position + forward * 3f;
 
-            // Check if within battlefield bounds
-            bool isValid = true;
-            if (GameManager.Instance != null)
-            {
-                isValid = GameManager.Instance.IsInsidePlayerBattlefield(PhotonNetwork.LocalPlayer, hit.point);
-            }
+        // Perform line trace from character chest/eye level in direction of camera
+        Vector3 rayOrigin = transform.position + Vector3.up * 1.5f;
+        Vector3 rayDirection = _cam.transform.forward;
+        Ray ray = new Ray(rayOrigin, rayDirection);
+        int ignoreMask = ~LayerMask.GetMask("Player");
 
-            // Color-code materials on the preview blueprint (green for valid, red for invalid)
-            foreach (var renderer in _spawnedBlueprint.GetComponentsInChildren<Renderer>())
+        if (Physics.Raycast(ray, out RaycastHit hit, 100f, ignoreMask))
+        {
+            // Only accept hits that aren't on ourselves
+            if (hit.collider.transform.root != transform.root)
             {
-                if (renderer != null)
-                {
-                    foreach (var mat in renderer.materials)
-                    {
-                        mat.color = isValid ? new Color(0.5f, 1f, 0.5f, 0.6f) : new Color(1f, 0.5f, 0.5f, 0.6f);
-                    }
-                }
-            }
-
-            // Click LMB to place
-            if (Input.GetMouseButtonDown(0) && isValid)
-            {
-                PlaceTroop(hit.point);
+                targetPos = hit.point;
             }
         }
-        else
+
+        // Snap target position to the ground
+        Ray groundRay = new Ray(targetPos + Vector3.up * 5f, Vector3.down);
+        if (Physics.Raycast(groundRay, out RaycastHit groundHit, 20f, ignoreMask))
         {
-            // Hide blueprint if pointing off-screen / at the sky
-            _spawnedBlueprint.SetActive(false);
+            targetPos = groundHit.point;
+        }
+
+        _spawnedBlueprint.SetActive(true);
+        _spawnedBlueprint.transform.position = targetPos;
+        _spawnedBlueprint.transform.rotation = Quaternion.LookRotation(forward);
+
+        // Check if within battlefield bounds
+        bool isValid = true;
+        if (GameManager.Instance != null)
+        {
+            isValid = GameManager.Instance.IsInsidePlayerBattlefield(PhotonNetwork.LocalPlayer, targetPos);
+        }
+
+        // Color-code materials on the preview blueprint (green for valid, red for invalid)
+        foreach (var renderer in _spawnedBlueprint.GetComponentsInChildren<Renderer>())
+        {
+            if (renderer != null)
+            {
+                foreach (var mat in renderer.materials)
+                {
+                    mat.color = isValid ? new Color(0.5f, 1f, 0.5f, 0.6f) : new Color(1f, 0.5f, 0.5f, 0.6f);
+                }
+            }
+        }
+
+        // Click LMB to place (ignore click on the same frame that placement started)
+        if (Input.GetMouseButtonDown(0) && isValid && Time.frameCount > _placementStartFrame)
+        {
+            PlaceTroop(targetPos);
         }
     }
 
     private void PlaceTroop(Vector3 position)
     {
         if (_resources == null || _selectedTroopData == null) return;
+
+        Quaternion rotation = Quaternion.identity;
+        if (_spawnedBlueprint != null)
+        {
+            rotation = _spawnedBlueprint.transform.rotation;
+        }
 
         if (_resources.Gold >= _selectedTroopData.goldCost && _resources.Lumber >= _selectedTroopData.lumberCost)
         {
@@ -472,7 +538,7 @@ public class CombatComponent : MonoBehaviourPun
             // Instantiation via Photon Network so all clients see it
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.SpawnTroopNetwork(_selectedTroopData.unitName, position);
+                GameManager.Instance.SpawnTroopNetwork(_selectedTroopData.unitName, position, rotation);
             }
         }
 
@@ -583,7 +649,7 @@ public class CombatComponent : MonoBehaviourPun
             var controller = hit.GetComponent<UnitController>();
             if (controller != null && controller.isEnemy)
             {
-                controller.TakeDamage(baseDamage, DamageType.Normal);
+                controller.TakeDamage(baseDamage, DamageType.Normal, gameObject);
                 break; // Attack single target
             }
         }

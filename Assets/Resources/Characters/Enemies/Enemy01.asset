@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e3a72a6179aa72c4eb4663775c60766f, type: 3}
+  m_Name: Enemy01
+  m_EditorClassIdentifier: 
+  unitName: Scorpions
+  description: Scorpions from the desert
+  icon: {fileID: 0}
+  visualPrefab: {fileID: 4787734284849576031, guid: 62af3bca4c021674691eac6f0ad205b4,
+    type: 3}
+  mesh: {fileID: 8839296896459980542, guid: eddea1ccec9b59c489a72365bd2d142d, type: 3}
+  materials:
+  - {fileID: 2100000, guid: 55a8f5f0d552c934fb23e3e4782676cf, type: 2}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 8d3170feb4c37924e95107ccd6628fbe, type: 2}
+  animatorAvatar: {fileID: 0}
+  goldCost: 0
+  lumberCost: 0
+  goldBounty: 3
+  maxHealth: 100
+  moveSpeed: 3
+  attackDamage: 10
+  attackRange: 1.5
+  attackRate: 1
+  isMelee: 1
+  damageType: 0
+  armorType: 0

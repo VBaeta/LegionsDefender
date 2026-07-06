@@ -15,7 +15,14 @@ MonoBehaviour:
   unitName: Crossbowman
   description: Ranged physical attacker. Good damage from afar.
   icon: {fileID: 0}
-  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  visualPrefab: {fileID: 919132149155446097, guid: f0cb0b28bdc162443b8918ce1226ee50,
+    type: 3}
+  mesh: {fileID: 2762821910609838633, guid: f0cb0b28bdc162443b8918ce1226ee50, type: 3}
+  materials:
+  - {fileID: 2100000, guid: 0d56048889547084185004fe216da3ad, type: 2}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 3ce9193c2ea96fa44bc74b5552afbc7f, type: 2}
+  animatorAvatar: {fileID: 0}
   goldCost: 180
   lumberCost: 10
   goldBounty: 35

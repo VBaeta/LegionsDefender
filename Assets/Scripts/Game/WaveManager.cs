@@ -102,11 +102,14 @@ public class WaveManager : MonoBehaviourPun
         Debug.Log($"Spawning Wave {_currentWaveIndex + 1}");
         _activeEnemiesCount = 0;
 
-        // Calculate total enemies
+        // Calculate total enemies based on active players/lanes
+        int activePlayerCount = PhotonNetwork.IsConnectedAndReady ? PhotonNetwork.CurrentRoom.PlayerCount : 1;
         int totalToSpawn = 0;
         foreach (var entry in wave.entries)
         {
-            totalToSpawn += entry.count * spawnPortals.Length;
+            // Limit to portals length in case player count is greater
+            int effectiveLanes = Mathf.Min(activePlayerCount, spawnPortals.Length);
+            totalToSpawn += entry.count * effectiveLanes;
         }
 
         // Spawn logic
@@ -114,10 +117,10 @@ public class WaveManager : MonoBehaviourPun
         {
             for (int count = 0; count < entry.count; count++)
             {
-                // Spawn one enemy for each active battlefield path
-                for (int pathIndex = 0; pathIndex < spawnPortals.Length; pathIndex++)
+                // Spawn one enemy for each active battlefield path corresponding to a player
+                for (int pathIndex = 0; pathIndex < activePlayerCount; pathIndex++)
                 {
-                    if (spawnPortals[pathIndex] == null) continue;
+                    if (pathIndex >= spawnPortals.Length || spawnPortals[pathIndex] == null) continue;
 
                     Transform portal = spawnPortals[pathIndex];
                     

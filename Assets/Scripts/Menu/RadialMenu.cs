@@ -117,6 +117,13 @@ public class RadialMenu : MonoBehaviour
     {
         if (!IsOpen) return;
 
+        // Right-click or Escape to close menu without selecting
+        if (Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.Escape))
+        {
+            Close();
+            return;
+        }
+
         Vector3 mousePos = Input.mousePosition - new Vector3(Screen.width / 2f, Screen.height / 2f, 0f);
         float distance = mousePos.magnitude;
 

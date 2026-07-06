@@ -20,6 +20,7 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
     private Vector3 _originalSpawnPosition;
     private Quaternion _originalSpawnRotation;
     private bool _isDead = false;
+    private Vector3 _lastPosition;
 
     // Enemy movement paths
     private Vector3[] _waypoints;
@@ -30,16 +31,28 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 
     public void OnPhotonInstantiate(PhotonMessageInfo info)
     {
+        // Automatically determine if this is an enemy unit based on prefab name
+        if (gameObject.name.Contains("GenericEnemy"))
+        {
+            isEnemy = true;
+        }
+
         object[] data = info.photonView.InstantiationData;
         if (data != null && data.Length > 0)
         {
             string unitName = (string)data[0];
             
-            // Check in Characters (Allies) or Enemies folder
-            UnitData loadedData = Resources.Load<UnitData>($"Characters/{unitName}");
-            if (loadedData == null)
+            // Search all UnitData assets in Resources by matching the unitName field
+            // This handles nested folder structures (e.g. Characters/Humans/Troops/1_Peasant)
+            UnitData loadedData = null;
+            UnitData[] allUnits = Resources.LoadAll<UnitData>("");
+            foreach (var ud in allUnits)
             {
-                loadedData = Resources.Load<UnitData>($"Enemies/{unitName}");
+                if (ud != null && ud.unitName == unitName)
+                {
+                    loadedData = ud;
+                    break;
+                }
             }
 
             if (loadedData != null)
@@ -52,10 +65,20 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
                 }
                 if (agent != null)
                 {
+                    agent.enabled = false;
+                    if (NavMesh.SamplePosition(transform.position, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
+                    {
+                        transform.position = navHit.position;
+                    }
+                    agent.enabled = true;
                     agent.speed = unitData.moveSpeed;
                 }
 
                 SpawnVisualModel();
+            }
+            else
+            {
+                Debug.LogWarning($"[UnitController] Could not find UnitData with unitName '{unitName}' in Resources!");
             }
         }
     }
@@ -71,12 +94,15 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
             }
         }
 
-        if (unitData != null && unitData.prefab != null)
+        if (unitData == null) return;
+
+        if (unitData.visualPrefab != null)
         {
-            GameObject visual = Instantiate(unitData.prefab, transform);
+            GameObject visual = Instantiate(unitData.visualPrefab, transform);
             visual.name = "VisualModel";
             visual.transform.localPosition = Vector3.zero;
             visual.transform.localRotation = Quaternion.identity;
+            visual.transform.localScale = Vector3.one * unitData.modelScale;
 
             // Cache animator
             _animator = visual.GetComponent<Animator>();
@@ -84,14 +110,84 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
             {
                 _animator = visual.GetComponentInChildren<Animator>();
             }
+
+            // If still null (e.g. if instantiating a raw FBX model asset directly), add one dynamically!
+            if (_animator == null)
+            {
+                _animator = visual.AddComponent<Animator>();
+            }
+
+            // Assign the Animator Controller to make sure it plays!
+            if (_animator != null)
+            {
+                _animator.enabled = true;
+                if (unitData.animatorController != null)
+                {
+                    _animator.runtimeAnimatorController = unitData.animatorController;
+                    _animator.Rebind();
+                }
+            }
+        }
+        else if (unitData.mesh != null)
+        {
+            GameObject visual = new GameObject("VisualModel");
+            visual.transform.SetParent(transform, false);
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localRotation = Quaternion.identity;
+            visual.transform.localScale = Vector3.one * unitData.modelScale;
+
+            // Build mesh renderer from ScriptableObject data
+            MeshFilter mf = visual.AddComponent<MeshFilter>();
+            mf.sharedMesh = unitData.mesh;
+
+            MeshRenderer mr = visual.AddComponent<MeshRenderer>();
+            if (unitData.materials != null && unitData.materials.Length > 0)
+            {
+                mr.sharedMaterials = unitData.materials;
+            }
+
+            // Attach animator if an AnimatorController is assigned
+            if (unitData.animatorController != null)
+            {
+                Animator anim = visual.AddComponent<Animator>();
+                anim.runtimeAnimatorController = unitData.animatorController;
+                if (unitData.animatorAvatar != null)
+                {
+                    anim.avatar = unitData.animatorAvatar;
+                }
+                _animator = anim;
+                _animator.enabled = true;
+                _animator.Rebind();
+            }
+        }
+        else
+        {
+            // Fallback: spawn a capsule primitive as a placeholder visual
+            GameObject visual = new GameObject("VisualModel");
+            visual.transform.SetParent(transform, false);
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localRotation = Quaternion.identity;
+
+            GameObject fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            fallback.transform.SetParent(visual.transform, false);
+            fallback.transform.localPosition = Vector3.zero;
+            Collider col = fallback.GetComponent<Collider>();
+            if (col != null) Destroy(col);
         }
     }
 
     private void Start()
     {
+        // Automatically determine if this is an enemy unit based on prefab name
+        if (gameObject.name.Contains("GenericEnemy"))
+        {
+            isEnemy = true;
+        }
+
         // Cache original spawn position and rotation for end-of-wave resets
         _originalSpawnPosition = transform.position;
         _originalSpawnRotation = transform.rotation;
+        _lastPosition = transform.position;
 
         // If spawned locally or preset in editor, spawn visual model if missing
         if (unitData != null && transform.Find("VisualModel") == null)
@@ -113,6 +209,12 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 
         if (agent != null)
         {
+            agent.enabled = false;
+            if (NavMesh.SamplePosition(transform.position, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
+            {
+                transform.position = navHit.position;
+            }
+            agent.enabled = true;
             agent.speed = unitData.moveSpeed;
         }
 
@@ -124,12 +226,16 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
     {
         if (_isDead) return;
 
-        // Update locomotion animation for all clients
-        if (_animator != null && agent != null && agent.isOnNavMesh)
+        // Update locomotion animation for all clients based on actual movement speed
+        if (_animator != null)
         {
-            float normSpeed = agent.velocity.magnitude / agent.speed;
+            float movementThisFrame = Vector3.Distance(transform.position, _lastPosition);
+            float actualSpeed = movementThisFrame / Mathf.Max(Time.deltaTime, 0.0001f);
+            float maxSpeed = (unitData != null && unitData.moveSpeed > 0) ? unitData.moveSpeed : 3f;
+            float normSpeed = Mathf.Clamp01(actualSpeed / maxSpeed);
             _animator.SetFloat("Speed", normSpeed);
         }
+        _lastPosition = transform.position;
 
         // Combat target and movement updates are processed on the owner/master client to prevent race conditions
         if (PhotonNetwork.IsConnectedAndReady && !PhotonNetwork.IsMasterClient) return;
@@ -141,7 +247,7 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
             
             if (distance <= unitData.attackRange)
             {
-                if (agent != null && agent.isOnNavMesh) agent.isStopped = true;
+                if (agent != null && agent.enabled && agent.isOnNavMesh) agent.isStopped = true;
                 
                 if (Time.time >= _nextAttackTime)
                 {
@@ -151,10 +257,21 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
             else
             {
                 // Chase target
-                if (agent != null && agent.isOnNavMesh)
+                if (agent != null && agent.enabled && agent.isOnNavMesh)
                 {
                     agent.isStopped = false;
                     agent.SetDestination(_target.position);
+                }
+                else
+                {
+                    // Fallback direct movement (e.g. if NavMesh isn't baked)
+                    Vector3 dir = (_target.position - transform.position).normalized;
+                    dir.y = 0;
+                    transform.position = Vector3.MoveTowards(transform.position, _target.position, unitData.moveSpeed * Time.deltaTime);
+                    if (dir.sqrMagnitude > 0.001f)
+                    {
+                        transform.rotation = Quaternion.LookRotation(dir);
+                    }
                 }
             }
         }
@@ -168,7 +285,7 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
             else
             {
                 // Idle troop
-                if (agent != null && agent.isOnNavMesh) agent.isStopped = true;
+                if (agent != null && agent.enabled && agent.isOnNavMesh) agent.isStopped = true;
             }
         }
     }
@@ -181,11 +298,26 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 
     private void FollowPath()
     {
-        if (agent == null || !agent.isOnNavMesh || _waypoints == null || _waypoints.Length == 0) return;
+        if (_waypoints == null || _waypoints.Length == 0) return;
 
-        agent.isStopped = false;
         Vector3 targetDest = _waypoints[_currentWaypointIndex];
-        agent.SetDestination(targetDest);
+
+        if (agent != null && agent.enabled && agent.isOnNavMesh)
+        {
+            agent.isStopped = false;
+            agent.SetDestination(targetDest);
+        }
+        else
+        {
+            // Fallback direct movement (e.g. if NavMesh isn't baked)
+            Vector3 dir = (targetDest - transform.position).normalized;
+            dir.y = 0;
+            transform.position = Vector3.MoveTowards(transform.position, targetDest, unitData.moveSpeed * Time.deltaTime);
+            if (dir.sqrMagnitude > 0.001f)
+            {
+                transform.rotation = Quaternion.LookRotation(dir);
+            }
+        }
 
         // Check if reached waypoint
         if (Vector3.Distance(transform.position, targetDest) < 2.0f)
@@ -207,13 +339,18 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
     {
         if (PhotonNetwork.IsConnectedAndReady && !PhotonNetwork.IsMasterClient) return;
 
-        // Reset if target is dead
+        // Reset if target is dead or leaves search/attack range
         if (_target != null)
         {
+            float currentDist = Vector3.Distance(transform.position, _target.position);
+            // Defocus range: at least 12 meters, or slightly larger than the unit's attack range
+            float defocusRange = Mathf.Max(unitData.attackRange + 3f, 12f);
+
             var targetUnit = _target.GetComponent<UnitController>();
             var targetPlayer = _target.GetComponent<CombatComponent>();
             if ((targetUnit != null && targetUnit.CurrentHealth <= 0) || 
-                (targetPlayer != null && targetPlayer.currentHealth <= 0))
+                (targetPlayer != null && targetPlayer.currentHealth <= 0) ||
+                currentDist > defocusRange)
             {
                 _target = null;
             }
@@ -221,7 +358,8 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 
         if (_target != null) return;
 
-        Collider[] hits = Physics.OverlapSphere(transform.position, 10f); // 10m search radius
+        float searchRadius = Mathf.Max(unitData.attackRange + 2f, 10f);
+        Collider[] hits = Physics.OverlapSphere(transform.position, searchRadius);
         float minDistance = float.MaxValue;
         Transform closest = null;
 
@@ -290,7 +428,7 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
         var targetUnit = _target.GetComponent<UnitController>();
         if (targetUnit != null)
         {
-            targetUnit.TakeDamage(unitData.attackDamage, unitData.damageType);
+            targetUnit.TakeDamage(unitData.attackDamage, unitData.damageType, gameObject);
         }
 
         var targetPlayer = _target.GetComponent<CombatComponent>();
@@ -314,31 +452,57 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
         }
     }
 
-    public void TakeDamage(float rawDamage, DamageType type)
+    public void TakeDamage(float rawDamage, DamageType type, GameObject attacker = null)
     {
+        int attackerId = -1;
+        if (attacker != null)
+        {
+            PhotonView pv = attacker.GetComponent<PhotonView>();
+            if (pv != null) attackerId = pv.ViewID;
+        }
+
         if (PhotonNetwork.IsConnectedAndReady)
         {
-            photonView.RPC("RPC_TakeDamage", RpcTarget.All, rawDamage, (int)type);
+            photonView.RPC("RPC_TakeDamage", RpcTarget.All, rawDamage, (int)type, attackerId);
         }
         else
         {
-            ProcessDamage(rawDamage, type);
+            ProcessDamage(rawDamage, type, attacker);
         }
     }
 
     [PunRPC]
-    private void RPC_TakeDamage(float rawDamage, int typeIndex)
+    private void RPC_TakeDamage(float rawDamage, int typeIndex, int attackerId)
     {
-        ProcessDamage(rawDamage, (DamageType)typeIndex);
+        GameObject attacker = null;
+        if (attackerId != -1)
+        {
+            PhotonView pv = PhotonView.Find(attackerId);
+            if (pv != null) attacker = pv.gameObject;
+        }
+        ProcessDamage(rawDamage, (DamageType)typeIndex, attacker);
     }
 
-    private void ProcessDamage(float rawDamage, DamageType type)
+    private void ProcessDamage(float rawDamage, DamageType type, GameObject attacker = null)
     {
         float mult = GetDamageMultiplier(type, unitData.armorType);
         float damage = rawDamage * mult;
 
         _currentHealth = Mathf.Max(_currentHealth - damage, 0f);
         Debug.Log($"{unitData.unitName} took {damage} damage ({type} vs {unitData.armorType}). Remaining HP: {_currentHealth}/{unitData.maxHealth}");
+
+        // Only MasterClient / local offline processes combat state modifications
+        if (!PhotonNetwork.IsConnectedAndReady || PhotonNetwork.IsMasterClient)
+        {
+            if (_currentHealth > 0f && attacker != null)
+            {
+                // Retaliate if no target
+                if (_target == null)
+                {
+                    _target = attacker.transform;
+                }
+            }
+        }
 
         if (_currentHealth <= 0f)
         {
@@ -467,10 +631,6 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
     {
         _isDead = false;
 
-        // Reset position and rotation
-        transform.position = _originalSpawnPosition;
-        transform.rotation = _originalSpawnRotation;
-
         // Re-enable visual model
         Transform visual = transform.Find("VisualModel");
         if (visual != null)
@@ -482,13 +642,21 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
         Collider col = GetComponent<Collider>();
         if (col != null) col.enabled = true;
 
+        // Reset position and rotation
+        transform.position = _originalSpawnPosition;
+        transform.rotation = _originalSpawnRotation;
+
         // Re-enable agent
         if (agent != null)
         {
+            agent.enabled = false;
+            if (NavMesh.SamplePosition(_originalSpawnPosition, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
+            {
+                transform.position = navHit.position;
+            }
             agent.enabled = true;
             if (agent.isOnNavMesh)
             {
-                agent.Warp(_originalSpawnPosition);
                 agent.isStopped = true;
             }
         }
@@ -512,6 +680,11 @@ public class UnitController : MonoBehaviourPun, IPunInstantiateMagicCallback
 
     private void Despawn()
     {
+        if (isEnemy && WaveManager.Instance != null)
+        {
+            WaveManager.Instance.OnEnemyDestroyed();
+        }
+
         if (PhotonNetwork.IsConnectedAndReady)
         {
             if (PhotonNetwork.IsMasterClient)

@@ -387,6 +387,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   gold: 1000
   lumber: 100
+  lumberjackCount: 1
+  lumberjackEfficiency: 1
 --- !u!114 &3668078854162109032
 MonoBehaviour:
   m_ObjectHideFlags: 0

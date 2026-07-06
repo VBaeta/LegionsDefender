@@ -15,7 +15,14 @@ MonoBehaviour:
   unitName: Guard
   description: Defensive foot soldier with a shield. Decent health and armor.
   icon: {fileID: 0}
-  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  visualPrefab: {fileID: 919132149155446097, guid: fd6c35a88aae43548856eacc3da484ef,
+    type: 3}
+  mesh: {fileID: -2745076697199205865, guid: fd6c35a88aae43548856eacc3da484ef, type: 3}
+  materials:
+  - {fileID: -876546973899608171, guid: fd6c35a88aae43548856eacc3da484ef, type: 3}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 008b11210f4d3ed4aa039f9db5a5ddd5, type: 2}
+  animatorAvatar: {fileID: 0}
   goldCost: 120
   lumberCost: 0
   goldBounty: 25

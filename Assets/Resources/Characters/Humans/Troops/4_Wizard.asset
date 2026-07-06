@@ -15,7 +15,14 @@ MonoBehaviour:
   unitName: Wizard
   description: Spellslinger dealing heavy magic damage. Soft but powerful.
   icon: {fileID: 0}
-  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  visualPrefab: {fileID: 919132149155446097, guid: 12dac23a0c2405f47a2e8099f831401d,
+    type: 3}
+  mesh: {fileID: 8615446256727785394, guid: 12dac23a0c2405f47a2e8099f831401d, type: 3}
+  materials:
+  - {fileID: -876546973899608171, guid: 12dac23a0c2405f47a2e8099f831401d, type: 3}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 5ce81f64349490b45a4f000bb8f8a329, type: 2}
+  animatorAvatar: {fileID: 0}
   goldCost: 280
   lumberCost: 30
   goldBounty: 55

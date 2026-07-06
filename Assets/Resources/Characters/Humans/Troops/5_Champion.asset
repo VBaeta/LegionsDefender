@@ -15,7 +15,14 @@ MonoBehaviour:
   unitName: Champion
   description: Elite armored knight. Exceptional melee stats.
   icon: {fileID: 0}
-  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  visualPrefab: {fileID: 919132149155446097, guid: 62cf9d38d02892649b2fc5403b121bc5,
+    type: 3}
+  mesh: {fileID: 6778927125345975340, guid: 62cf9d38d02892649b2fc5403b121bc5, type: 3}
+  materials:
+  - {fileID: -876546973899608171, guid: 62cf9d38d02892649b2fc5403b121bc5, type: 3}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 067a833262bc4db44b258471edfc1190, type: 2}
+  animatorAvatar: {fileID: 0}
   goldCost: 450
   lumberCost: 50
   goldBounty: 90

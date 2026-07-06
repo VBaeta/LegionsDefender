@@ -202,11 +202,11 @@ public class GameManager : MonoBehaviourPunCallbacks
         }
     }
 
-    public void SpawnTroopNetwork(string troopName, Vector3 position)
+    public void SpawnTroopNetwork(string troopName, Vector3 position, Quaternion rotation)
     {
         // Instantiates the generic troop prefab, passing the troopName as custom initialization data
         object[] initData = new object[] { troopName };
-        PhotonNetwork.Instantiate("Prefabs/Troops/GenericTroop", position, Quaternion.identity, 0, initData);
+        PhotonNetwork.Instantiate("Prefabs/Troops/GenericTroop", position, rotation, 0, initData);
     }
 
     public void RequestCastleUpgrade(Player player, int statIndex)

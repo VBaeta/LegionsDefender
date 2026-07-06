@@ -15,7 +15,14 @@ MonoBehaviour:
   unitName: Catapult
   description: Heavy siege weapon. Devastating damage from long range.
   icon: {fileID: 0}
-  prefab: {fileID: 6050034992310891844, guid: e9b07418fa7514d4198ad22c4b377fa0, type: 3}
+  visualPrefab: {fileID: 4787734284849576031, guid: 1509c3f930bfa3c4da885bf739065016,
+    type: 3}
+  mesh: {fileID: -8028931718031318561, guid: 142b6a37a06af2d41b61d75ea755bbd2, type: 3}
+  materials:
+  - {fileID: 2100000, guid: 9b5de0f574fcb6e40b3734432ff3e97d, type: 2}
+  modelScale: 1
+  animatorController: {fileID: 9100000, guid: 9a385789231930e4a95cf7958f38643f, type: 2}
+  animatorAvatar: {fileID: 0}
   goldCost: 750
   lumberCost: 120
   goldBounty: 150
